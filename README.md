@@ -6,181 +6,8 @@
 * [한국어](#한국어)
 
 
-# English
-A comprehensive document processing system that extracts text, tables, and images from complex PDF documents, processes them using AWS Bedrock for AI capabilities, and indexes them in OpenSearch for efficient retrieval and querying.
-
-This project combines advanced document parsing with AI-powered processing to create a searchable knowledge base from PDF documents. It leverages AWS services including Bedrock for AI/ML capabilities and OpenSearch for scalable document storage and retrieval. The system supports hybrid search combining semantic and lexical search approaches, making it ideal for enterprise document management and knowledge retrieval applications.
-
-### Note  
-This is the extracted source code from the file `20_applications/02_qa_chatbot/01_preprocess_docs/05_0_load_default_complex_pdf_kr_opensearch.ipynb` in the [aws-samples/multi-modal-chatbot-with-advanced-rag](https://github.com/aws-samples/multi-modal-chatbot-with-advanced-rag) repository.  
-It has been modified to run locally without uploading it to SageMaker.
-
-
-## 📁 Repository Structure
-```
-.
-├── config/                      # Configuration management
-│   ├── config.py               # Environment-specific configurations
-│   └── create_app.py           # Flask application factory
-├── models/                     # Data models
-│   └── chat_model.py           # SQLAlchemy chat model definition
-├── src/                        # Core source code
-│   ├── uploadToOpenSearch.py   # Main document processing and indexing logic
-│   └── utils/                  # Utility modules
-│       ├── bedrock.py         # AWS Bedrock integration
-│       ├── chat.py            # Chat functionality implementation
-│       ├── chunk.py           # Document chunking utilities
-│       ├── opensearch.py      # OpenSearch operations
-│       ├── proc_docs.py       # Document processing utilities
-│       ├── rag.py            # Retrieval Augmented Generation
-│       ├── s3.py             # AWS S3 operations
-│       └── text_to_report.py # Text to chart conversion
-├── requirements.txt           # Project dependencies
-└── server.py                 # Flask server entry point
-```
-
-## 🚀 Usage Instructions
-### 📌 Prerequisites
-- Python 3.8+
-- AWS Account with access to:
-  - Bedrock
-  - OpenSearch
-  - S3
-- OpenSearch domain endpoint
-- AWS credentials configured
-
-**Required Python packages**
-```
-boto3>=1.34
-flask>=3.1
-langchain>=0.2.5
-opensearch-py>=2.6.0
-PyMuPDF>=1.25.5
-```
-
-### ⚙️ Installation
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd <repository-name>
-```
-
-2. (Option)Create and activate a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/MacOS
-venv\Scripts\activate     # Windows
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Configure OpenSearch:
-Create config.ini with:
-```ini
-[OpenSearch]
-ENDPOINT=<your-opensearch-endpoint>
-NAME=<admin-username>
-PWD=<admin-password>
-REGION=<aws-region>
-```
-
----
-
-### 🏁  Quick Start
-
-1. Start the server:
-```bash
-python server.py
-```
-
-2. Upload a document:
-```python
-import requests
-
-data = {
-    'file_path': 'YOUR_LOCAL_FILE_PATH.pdf',  # Local path to the PDF file
-    'index': 'YOUR_OPENSEARCH_INDEX_NAME'     # Index name (will be created if it doesn't exist)
-}
-
-response = requests.post(
-    'http://localhost:5000/api/opensearch/upload',
-    data=data  # Send as form-data
-)
-
-print("Status Code:", response.status_code)
-print("Response:", response.text)
-```
-⚠️ Note: This process may take up to 10 minutes depending on the size and complexity of the document.
-
----
-
-### 💡 More Detailed Examples
-
-### Process and index a document with custom chunking:
-```python
-from src.utils.chunk import create_chunk
-from src.utils.proc_docs import insert_chunk_opensearch
-
-# Create chunks
-chunks = create_chunk(documents, chunk_size=1000, chunk_overlap=100)
-
-# Index chunks
-insert_chunk_opensearch(chunks, embeddings_model, os_client, index_name)
-```
-
----
-
-
-### 🛠️ Troubleshooting
-
-1. OpenSearch Connection Issues
-```bash
-# Check OpenSearch endpoint
-curl -X GET https://<opensearch-endpoint>/_cluster/health
-```
-
-- Verify security group settings
-- Check credentials in config.ini
-- Ensure AWS region matches OpenSearch domain
-
-2. Document Processing Errors
-- Check PDF permissions
-- Verify sufficient memory for large documents
-- Enable debug logging:
-```python
-import logging
-logging.basicConfig(level=logging.DEBUG)
-```
-
----
-
-## 🔄 Data Flow
-The system processes documents through a pipeline that extracts content, enriches it with AI, and makes it searchable.
-
-```ascii
-[PDF Document] -> [Content Extraction] -> [AI Processing] -> [Chunking] -> [Embedding] -> [OpenSearch]
-     |                    |                     |              |             |              |
-     v                    v                     v              v             v              v
-  Raw File         Text/Tables/Images     AI Enrichment    Segments    Vector Data    Searchable Index
-```
-
-### Key component interactions:
-1. Document loader extracts structured content from PDFs
-2. AWS Bedrock generates embeddings and processes content
-3. Chunking system splits documents into optimal segments
-4. OpenSearch stores both vector and text data
-5. Hybrid retriever combines semantic and lexical search
-6. REST API provides document upload and search interface
-7. S3 handles document storage and management
-
----
-
 # 한국어
-# PDF 문서 벡터화 및 OpenSearch 업로드 시스템
+# PDF 문서 고급 벡터화 및 OpenSearch 업로드 시스템
 
 복잡한 PDF 문서에서 **텍스트, 표, 이미지**를 추출하고, AWS Bedrock을 통해 AI 기반 처리 후 OpenSearch에 벡터화하여 효율적인 검색과 질의가 가능한 문서 처리 시스템입니다.
 
@@ -355,5 +182,178 @@ logging.basicConfig(level=logging.DEBUG)
 5. 하이브리드 검색기: 의미 기반 + 키워드 기반 결합
 6. REST API: 업로드 및 검색 인터페이스 제공
 7. S3: 문서 저장소
+
+---
+
+# English
+A comprehensive document processing system that extracts text, tables, and images from complex PDF documents, processes them using AWS Bedrock for AI capabilities, and indexes them in OpenSearch for efficient retrieval and querying.
+
+This project combines advanced document parsing with AI-powered processing to create a searchable knowledge base from PDF documents. It leverages AWS services including Bedrock for AI/ML capabilities and OpenSearch for scalable document storage and retrieval. The system supports hybrid search combining semantic and lexical search approaches, making it ideal for enterprise document management and knowledge retrieval applications.
+
+### Note  
+This is the extracted source code from the file `20_applications/02_qa_chatbot/01_preprocess_docs/05_0_load_default_complex_pdf_kr_opensearch.ipynb` in the [aws-samples/multi-modal-chatbot-with-advanced-rag](https://github.com/aws-samples/multi-modal-chatbot-with-advanced-rag) repository.  
+It has been modified to run locally without uploading it to SageMaker.
+
+
+## 📁 Repository Structure
+```
+.
+├── config/                      # Configuration management
+│   ├── config.py               # Environment-specific configurations
+│   └── create_app.py           # Flask application factory
+├── models/                     # Data models
+│   └── chat_model.py           # SQLAlchemy chat model definition
+├── src/                        # Core source code
+│   ├── uploadToOpenSearch.py   # Main document processing and indexing logic
+│   └── utils/                  # Utility modules
+│       ├── bedrock.py         # AWS Bedrock integration
+│       ├── chat.py            # Chat functionality implementation
+│       ├── chunk.py           # Document chunking utilities
+│       ├── opensearch.py      # OpenSearch operations
+│       ├── proc_docs.py       # Document processing utilities
+│       ├── rag.py            # Retrieval Augmented Generation
+│       ├── s3.py             # AWS S3 operations
+│       └── text_to_report.py # Text to chart conversion
+├── requirements.txt           # Project dependencies
+└── server.py                 # Flask server entry point
+```
+
+## 🚀 Usage Instructions
+### 📌 Prerequisites
+- Python 3.8+
+- AWS Account with access to:
+  - Bedrock
+  - OpenSearch
+  - S3
+- OpenSearch domain endpoint
+- AWS credentials configured
+
+**Required Python packages**
+```
+boto3>=1.34
+flask>=3.1
+langchain>=0.2.5
+opensearch-py>=2.6.0
+PyMuPDF>=1.25.5
+```
+
+### ⚙️ Installation
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd <repository-name>
+```
+
+2. (Optional)Create and activate a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # Linux/MacOS
+venv\Scripts\activate     # Windows
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+4. Configure OpenSearch:
+Create config.ini with:
+```ini
+[OpenSearch]
+ENDPOINT=<your-opensearch-endpoint>
+NAME=<admin-username>
+PWD=<admin-password>
+REGION=<aws-region>
+```
+
+---
+
+### 🏁  Quick Start
+
+1. Start the server:
+```bash
+python server.py
+```
+
+2. Upload a document:
+```python
+import requests
+
+data = {
+    'file_path': 'YOUR_LOCAL_FILE_PATH.pdf',  # Local path to the PDF file
+    'index': 'YOUR_OPENSEARCH_INDEX_NAME'     # Index name (will be created if it doesn't exist)
+}
+
+response = requests.post(
+    'http://localhost:5000/api/opensearch/upload',
+    data=data  # Send as form-data
+)
+
+print("Status Code:", response.status_code)
+print("Response:", response.text)
+```
+⚠️ Note: This process may take up to 10 minutes depending on the size and complexity of the document.
+
+---
+
+### 💡 More Detailed Examples
+
+### Process and index a document with custom chunking:
+```python
+from src.utils.chunk import create_chunk
+from src.utils.proc_docs import insert_chunk_opensearch
+
+# Create chunks
+chunks = create_chunk(documents, chunk_size=1000, chunk_overlap=100)
+
+# Index chunks
+insert_chunk_opensearch(chunks, embeddings_model, os_client, index_name)
+```
+
+---
+
+
+### 🛠️ Troubleshooting
+
+1. OpenSearch Connection Issues
+```bash
+# Check OpenSearch endpoint
+curl -X GET https://<opensearch-endpoint>/_cluster/health
+```
+
+- Verify security group settings
+- Check credentials in config.ini
+- Ensure AWS region matches OpenSearch domain
+
+2. Document Processing Errors
+- Check PDF permissions
+- Verify sufficient memory for large documents
+- Enable debug logging:
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+```
+
+---
+
+## 🔄 Data Flow
+The system processes documents through a pipeline that extracts content, enriches it with AI, and makes it searchable.
+
+```ascii
+[PDF Document] -> [Content Extraction] -> [AI Processing] -> [Chunking] -> [Embedding] -> [OpenSearch]
+     |                    |                     |              |             |              |
+     v                    v                     v              v             v              v
+  Raw File         Text/Tables/Images     AI Enrichment    Segments    Vector Data    Searchable Index
+```
+
+### Key component interactions:
+1. Document loader extracts structured content from PDFs
+2. AWS Bedrock generates embeddings and processes content
+3. Chunking system splits documents into optimal segments
+4. OpenSearch stores both vector and text data
+5. Hybrid retriever combines semantic and lexical search
+6. REST API provides document upload and search interface
+7. S3 handles document storage and management
 
 ---
