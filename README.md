@@ -72,8 +72,8 @@ PyMuPDF>=1.25.5
 
 1. 저장소 클론
 ```bash
-git clone <repository-url>
-cd <repository-name>
+git clone https://github.com/JangYouJung/UploadOpensearchParentChild.git
+cd UploadOpensearchParentChild
 ```
 
 2. (선택)가상환경 설정
@@ -241,8 +241,8 @@ PyMuPDF>=1.25.5
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd <repository-name>
+git clone https://github.com/JangYouJung/UploadOpensearchParentChild.git
+cd UploadOpensearchParentChild
 ```
 
 2. (Optional)Create and activate a virtual environment:
