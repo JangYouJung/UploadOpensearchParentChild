@@ -37,6 +37,7 @@ from pdf2image import convert_from_path
 from unstructured.cleaners.core import clean_bullets, clean_extra_whitespace
 from flask_restful import Resource
 from flask import request
+from itertools import chain
 
 # LangChain imports
 from langchain.embeddings import BedrockEmbeddings
@@ -54,7 +55,6 @@ from src.utils import bedrock, print_ww
 from src.utils.bedrock import bedrock_info
 from src.utils.common_utils import to_pickle, load_pickle, print_html, to_markdown, retry
 from src.utils.pymupdf import to_markdown_pymupdf
-from src.utils.ssm import parameter_store
 from src.utils.opensearch import opensearch_utils
 from src.utils.chunk import parant_documents
 from src.utils.rag import qa_chain, prompt_repo, show_context_used, retriever_utils, OpenSearchHybridSearchRetriever
@@ -223,6 +223,7 @@ def prepare_data(file_path, image_path, llm_text, table_by_pymupdf=False, table_
         strategy="hi_res",
         hi_res_model_name="yolox",
         # extract_images_in_pdf=True,
+        pdf_extract_images=True,    
         pdf_infer_table_structure=True,
         extract_image_block_output_dir=image_path,
         extract_image_block_to_payload=False,
@@ -634,23 +635,23 @@ def process_documents_for_indexing(texts, tables_preprocessed, images_preprocess
     # Process tables and images
     # Add tables to parent documents
     for table in tables_preprocessed:
-        table.metadata[opensearch_family_tree_key_name] = "table"
-        table.metadata[opensearch_parent_key_name] = None
+        table.metadata["family_tree"], table.metadata["parent_id"] = "parent_table", "NA"
     
     # Add images to parent documents
     for image in images_preprocessed:
-        image.metadata[opensearch_family_tree_key_name] = "image"
-        image.metadata[opensearch_parent_key_name] = None
+        image.metadata["family_tree"], image.metadata["parent_id"] = "parent_image", "NA"
     
     # Merge all documents
-    all_docs = parent_chunk_docs + tables_preprocessed + images_preprocessed
+    docs_preprocessed = list(chain(child_chunk_docs, tables_preprocessed, images_preprocessed))
     
     # Add all documents to OpenSearch
-    vector_db.add_documents(
-        documents=all_docs,
-        vector_field="vector_field",
+    child_ids = vector_db.add_documents(
+        documents=docs_preprocessed, 
+        vector_field = "vector_field",
         bulk_size=1000000
     )
+
+    print("length of child_ids: ", len(child_ids))
     
     # Check final document count
     total_count_docs = opensearch_utils.get_count(os_client, index_name)
