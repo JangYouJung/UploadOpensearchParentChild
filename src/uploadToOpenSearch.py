@@ -30,7 +30,6 @@ import fitz
 import cv2
 import numpy as np
 from PIL import Image
-import matplotlib.pyplot as plt
 import botocore
 from termcolor import colored
 from pdf2image import convert_from_path
@@ -100,9 +99,17 @@ class UploadToOpenSearch(Resource):
         
         # Load models
         llm_text, llm_emb, dimension = load_models(boto3_bedrock)
+
+        # Set index
+        print(colored("오픈서치 인덱스 세팅...", "green"))
+        index_name, os_client, opensearch_domain_endpoint, http_auth = set_index(dimension, index_name)
+        
+        # Create vector store
+        print(colored("벡터 저장소 세팅...", "green"))
+        vector_db = create_vector_store(index_name, opensearch_domain_endpoint, http_auth, llm_emb)
         
         # Prepare data
-        print("Preparing data...")
+        print(colored("데이터 준비...", "green"))
         texts, tables_preprocessed, images_preprocessed = prepare_data(
             file_path=file_path,
             image_path=image_path,
@@ -111,19 +118,11 @@ class UploadToOpenSearch(Resource):
             table_as_image=True
         )
         
-        # Set index
-        print(colored("Set Opensearch index...", "green"))
-        index_name, os_client, opensearch_domain_endpoint, http_auth = set_index(dimension, index_name)
-        
-        # Create vector store
-        print(colored("Creating vector store...", "green"))
-        vector_db = create_vector_store(index_name, opensearch_domain_endpoint, http_auth, llm_emb)
-        
         # Process documents for indexing
-        print(colored("Processing documents for indexing...", "green"))
+        print(colored("인덱싱을 위한 문서 작업...", "green"))
         process_documents_for_indexing(texts, tables_preprocessed, images_preprocessed, vector_db, os_client, index_name)
         
-        print(colored("Processing complete!", "green"))
+        print(colored("작업 완료!", "green"))
 
         return {'message': 'Processed'}, 201
     
@@ -139,8 +138,6 @@ def image_to_base64(image_path):
 def summary_img(summarize_chain, img_base64):
     """Generate a summary of an image using the provided chain."""
     img = Image.open(BytesIO(base64.b64decode(img_base64)))
-    plt.imshow(img)
-    plt.show()
 
     summary = summarize_chain.invoke(
         {
@@ -225,6 +222,7 @@ def prepare_data(file_path, image_path, llm_text, table_by_pymupdf=False, table_
         # extract_images_in_pdf=True,
         pdf_extract_images=True,    
         pdf_infer_table_structure=True,
+        pdf_image_output_dir_path= image_path,
         extract_image_block_output_dir=image_path,
         extract_image_block_to_payload=False,
         max_characters=4096,
