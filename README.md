@@ -95,6 +95,9 @@ ENDPOINT=<OpenSearch 엔드포인트>
 NAME=<관리자 계정>
 PWD=<비밀번호>
 REGION=<AWS 리전>
+
+[LibreOffice]
+PATH = <LibreOffice의 soffice.exe 실행 파일 경로>
 ```
 
 ---
@@ -265,6 +268,9 @@ ENDPOINT=<your-opensearch-endpoint>
 NAME=<admin-username>
 PWD=<admin-password>
 REGION=<aws-region>
+
+[LibreOffice]
+PATH = <LibreOffice - soffice.exe file path>
 ```
 
 ---

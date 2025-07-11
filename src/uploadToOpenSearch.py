@@ -23,6 +23,7 @@ import base64
 from glob import glob
 from io import BytesIO
 from pprint import pprint
+import subprocess
 
 # Third-party imports
 import boto3
@@ -59,6 +60,10 @@ from src.utils.chunk import parant_documents
 from src.utils.rag import qa_chain, prompt_repo, show_context_used, retriever_utils, OpenSearchHybridSearchRetriever
 import configparser
 
+import nltk
+nltk.download('punkt_tab')
+nltk.download('averaged_perceptron_tagger_eng')
+
 # 오픈서치 환경변수 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -67,9 +72,8 @@ opensearch_user_id = config['OpenSearch']['NAME']
 opensearch_user_password = config['OpenSearch']['PWD']
 aws_region = config['OpenSearch']['REGION']
 
-import nltk
-nltk.download('punkt_tab')
-nltk.download('averaged_perceptron_tagger_eng')
+# LibreOffice 실행 파일 경로 
+libreoffice_path = config['LibreOffice']['PATH']
 
 def add_python_path(module_path):
     """Add a path to the Python system path if it doesn't already exist."""
@@ -83,7 +87,6 @@ def add_python_path(module_path):
 # Setup paths
 module_path = "../../.."
 add_python_path(module_path)
-
 
 class UploadToOpenSearch(Resource): 
     def post(self):
@@ -108,6 +111,12 @@ class UploadToOpenSearch(Resource):
         print(colored("벡터 저장소 세팅...", "green"))
         vector_db = create_vector_store(index_name, opensearch_domain_endpoint, http_auth, llm_emb)
         
+        # 🔄 파일 확장자 확인 및 PDF로 변환
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext != ".pdf":
+            print(colored(f"{ext} 문서를 PDF로 변환합니다...", "yellow"))
+            file_path = convert_to_pdf_libreoffice(file_path)
+
         # Prepare data
         print(colored("데이터 준비...", "green"))
         texts, tables_preprocessed, images_preprocessed = prepare_data(
@@ -656,4 +665,33 @@ def process_documents_for_indexing(texts, tables_preprocessed, images_preprocess
     print("Final total count docs: ", total_count_docs)
 
 
+def convert_to_pdf_libreoffice(input_path):
+    """
+    윈도우에서 LibreOffice를 사용해 문서를 PDF로 변환합니다.
+    """
+    output_dir = os.path.dirname(input_path)
 
+    try:
+        result = subprocess.run([
+            libreoffice_path,
+            "--headless",
+            "--convert-to", "pdf",
+            "--outdir", output_dir,
+            input_path
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+        # 🔽 인코딩 문제 방지
+        print(colored(result.stdout.decode("mbcs", errors="replace"), "cyan"))
+        print(colored(result.stderr.decode("mbcs", errors="replace"), "red"))
+
+    except subprocess.CalledProcessError as e:
+        print(colored("LibreOffice 변환 실패", "red"))
+        print(colored(e.stderr.decode("mbcs", errors="replace"), "red"))
+        raise
+
+    # 변환된 PDF 경로 반환
+    pdf_path = os.path.splitext(input_path)[0] + ".pdf"
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"PDF 변환 실패: {pdf_path} 파일이 존재하지 않습니다.")
+    
+    return pdf_path
