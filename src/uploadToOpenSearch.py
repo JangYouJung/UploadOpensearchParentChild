@@ -24,12 +24,12 @@ from glob import glob
 from io import BytesIO
 from pprint import pprint
 import subprocess
+import win32com.client
 
 # Third-party imports
 import boto3
 import fitz
 import cv2
-import numpy as np
 from PIL import Image
 import botocore
 from termcolor import colored
@@ -45,7 +45,6 @@ from langchain_aws import ChatBedrock
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain_community.document_loaders import UnstructuredFileLoader, UnstructuredMarkdownLoader
 from langchain.schema import Document
-from langchain_core.messages import HumanMessage
 from langchain.schema.output_parser import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 from langchain.vectorstores import OpenSearchVectorSearch
@@ -53,11 +52,10 @@ from langchain.vectorstores import OpenSearchVectorSearch
 # Now import local modules after path setup
 from src.utils import bedrock, print_ww
 from src.utils.bedrock import bedrock_info
-from src.utils.common_utils import to_pickle, load_pickle, print_html, to_markdown, retry
+from src.utils.common_utils import to_pickle, load_pickle, to_markdown, retry
 from src.utils.pymupdf import to_markdown_pymupdf
 from src.utils.opensearch import opensearch_utils
 from src.utils.chunk import parant_documents
-from src.utils.rag import qa_chain, prompt_repo, show_context_used, retriever_utils, OpenSearchHybridSearchRetriever
 import configparser
 
 import nltk
@@ -111,11 +109,21 @@ class UploadToOpenSearch(Resource):
         print(colored("벡터 저장소 세팅...", "green"))
         vector_db = create_vector_store(index_name, opensearch_domain_endpoint, http_auth, llm_emb)
         
-        # 🔄 파일 확장자 확인 및 PDF로 변환
+        # 파일 확장자 확인 및 PDF로 변환
         ext = os.path.splitext(file_path)[1].lower()
+
         if ext != ".pdf":
             print(colored(f"{ext} 문서를 PDF로 변환합니다...", "yellow"))
-            file_path = convert_to_pdf_libreoffice(file_path)
+            if ext == ".hwp":
+                try:
+                    file_path = convert_hwp_to_pdf(file_path)
+                except Exception as e:
+                    raise ValueError(f"HWP 변환 실패: {e}")
+            else: 
+                try:
+                    file_path = convert_to_pdf_libreoffice(file_path)
+                except Exception as e:
+                    raise ValueError(f"{ext} 변환 실패: {e}")
 
         # Prepare data
         print(colored("데이터 준비...", "green"))
@@ -694,4 +702,20 @@ def convert_to_pdf_libreoffice(input_path):
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF 변환 실패: {pdf_path} 파일이 존재하지 않습니다.")
     
+    return pdf_path
+
+def convert_hwp_to_pdf(input_path):
+    hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
+    hwp.XHwpWindows.Item(0).Visible = False
+
+    try:
+        hwp.Open(input_path)
+        pdf_path = os.path.splitext(input_path)[0] + ".pdf"
+        hwp.SaveAs(pdf_path, "PDF")
+        hwp.Quit()
+    except Exception as e:
+        print("HWP 변환 오류:", e)
+        hwp.Quit()
+        raise
+
     return pdf_path
