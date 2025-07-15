@@ -23,16 +23,17 @@ import base64
 from glob import glob
 from io import BytesIO
 from pprint import pprint
+import subprocess
+import win32com.client
 
 # Third-party imports
 import boto3
 import fitz
 import cv2
-import numpy as np
 from PIL import Image
 import botocore
 from termcolor import colored
-from docx2txt import process
+from pdf2image import convert_from_path
 from unstructured.cleaners.core import clean_bullets, clean_extra_whitespace
 from flask_restful import Resource
 from flask import request
@@ -42,9 +43,8 @@ from itertools import chain
 from langchain.embeddings import BedrockEmbeddings
 from langchain_aws import ChatBedrock
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain_community.document_loaders import UnstructuredFileLoader, UnstructuredWordDocumentLoader, UnstructuredMarkdownLoader
+from langchain_community.document_loaders import UnstructuredFileLoader, UnstructuredMarkdownLoader
 from langchain.schema import Document
-from langchain_core.messages import HumanMessage
 from langchain.schema.output_parser import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 from langchain.vectorstores import OpenSearchVectorSearch
@@ -52,12 +52,15 @@ from langchain.vectorstores import OpenSearchVectorSearch
 # Now import local modules after path setup
 from src.utils import bedrock, print_ww
 from src.utils.bedrock import bedrock_info
-from src.utils.common_utils import to_pickle, load_pickle, print_html, to_markdown, retry
+from src.utils.common_utils import to_pickle, load_pickle, to_markdown, retry
 from src.utils.pymupdf import to_markdown_pymupdf
 from src.utils.opensearch import opensearch_utils
 from src.utils.chunk import parant_documents
-from src.utils.rag import qa_chain, prompt_repo, show_context_used, retriever_utils, OpenSearchHybridSearchRetriever
 import configparser
+
+import nltk
+nltk.download('punkt_tab')
+nltk.download('averaged_perceptron_tagger_eng')
 
 # 오픈서치 환경변수 
 config = configparser.ConfigParser()
@@ -67,10 +70,8 @@ opensearch_user_id = config['OpenSearch']['NAME']
 opensearch_user_password = config['OpenSearch']['PWD']
 aws_region = config['OpenSearch']['REGION']
 
-import nltk
-import imgkit
-nltk.download('punkt_tab')
-nltk.download('averaged_perceptron_tagger_eng')
+# LibreOffice 실행 파일 경로 
+libreoffice_path = config['LibreOffice']['PATH']
 
 def add_python_path(module_path):
     """Add a path to the Python system path if it doesn't already exist."""
@@ -85,16 +86,19 @@ def add_python_path(module_path):
 module_path = "../../.."
 add_python_path(module_path)
 
-
-class UploadToOpenSearchDocx(Resource): 
+class UploadToOpenSearchS3(Resource): 
     def post(self):
         """Main function to orchestrate the workflow."""
 
         # Setup paths
-        file_path = request.form.get("file_path")
+        s3_file_path = request.form.get("file_path")
         index_name = request.form.get("index")
         image_path = "./fig"
         
+                
+        # Download file from S3
+        file_path = download_from_s3(s3_file_path)
+
         # Create Bedrock client
         boto3_bedrock = create_bedrock_client()
         
@@ -109,6 +113,22 @@ class UploadToOpenSearchDocx(Resource):
         print(colored("벡터 저장소 세팅...", "green"))
         vector_db = create_vector_store(index_name, opensearch_domain_endpoint, http_auth, llm_emb)
         
+        # 파일 확장자 확인 및 PDF로 변환
+        ext = os.path.splitext(file_path)[1].lower()
+
+        if ext != ".pdf":
+            print(colored(f"{ext} 문서를 PDF로 변환합니다...", "yellow"))
+            if ext == ".hwp":
+                try:
+                    file_path = convert_hwp_to_pdf(file_path)
+                except Exception as e:
+                    raise ValueError(f"HWP 변환 실패: {e}")
+            else: 
+                try:
+                    file_path = convert_to_pdf_libreoffice(file_path)
+                except Exception as e:
+                    raise ValueError(f"{ext} 변환 실패: {e}")
+
         # Prepare data
         print(colored("데이터 준비...", "green"))
         texts, tables_preprocessed, images_preprocessed = prepare_data(
@@ -230,8 +250,7 @@ def prepare_data(file_path, image_path, llm_text, table_by_pymupdf=False, table_
         new_after_n_chars=4000,
         combine_text_under_n_chars=2000,
         languages=["kor+eng"],
-        post_processors=[clean_bullets, clean_extra_whitespace],
-        include_metadata = True
+        post_processors=[clean_bullets, clean_extra_whitespace]
     )
     
     print(colored("Loading and parsing document...", "green"))
@@ -282,51 +301,47 @@ def prepare_data(file_path, image_path, llm_text, table_by_pymupdf=False, table_
             shutil.rmtree(image_tmp_path)
         os.mkdir(image_tmp_path)
         
-        # Convert DOCX pages to images
-        pages = process(file_path, image_path)
-        # for i, page in enumerate(pages):
-            # print(f'docx page {i}, size: {page}')    
-            # page.save(f'{image_tmp_path}/{str(i+1)}.jpg', "JPEG")
+        # Convert PDF pages to images
+        pages = convert_from_path(file_path)
+        for i, page in enumerate(pages):
+            print(f'pdf page {i}, size: {page.size}')    
+            page.save(f'{image_tmp_path}/{str(i+1)}.jpg', "JPEG")
         
         print("========")
         
         # Extract table regions as images
         for idx, table in enumerate(tables):
-            print("메타 데이터 출력 ------------")
-            print(table.metadata)
-
-            # DOCX 방식 (HTML 테이블을 이미지로 변환)
-            html_table = table.metadata.get("text_as_html", "")
-            if html_table:
-                # HTML을 이미지로 변환
-                table_image_path = f'{image_path}/table-{idx}.jpg'
-                html_to_image(html_table, table_image_path)
-            else:
-                # HTML이 없으면 텍스트만 사용
-                print(f"Table {idx}: No coordinate info, using text only")
-                continue
-            print("==")
-    
-            # 이미지 처리 (공통)
-            if os.path.exists(table_image_path):
-                img = cv2.imread(table_image_path)
-                width, height, _ = img.shape
-                image_token = width*height/750
-                print(f'image: {table_image_path}, shape: {img.shape}, image_token_for_claude3: {image_token}')
-                
-                # Resize large images
-                if image_token > 1500:
-                    resize_img = cv2.resize(img, (0, 0), fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
-                    print("   - resize_img.shape = {0}".format(resize_img.shape))
-                    table_image_resize_path = table_image_path.replace(".jpg", "-resize.jpg")
-                    cv2.imwrite(table_image_resize_path, resize_img)
-                    os.remove(table_image_path)
-                    table_image_path = table_image_resize_path
-                
-                img_base64 = image_to_base64(table_image_path)
-                table.metadata["image_base64"] = img_base64
-
+            points = table.metadata["coordinates"]["points"]
+            page_number = table.metadata["page_number"]
+            layout_width = table.metadata["coordinates"]["layout_width"]
+            layout_height = table.metadata["coordinates"]["layout_height"]
             
+            img = cv2.imread(f'{image_tmp_path}/{page_number}.jpg')
+            crop_img = img[math.ceil(points[0][1]):math.ceil(points[1][1]), 
+                          math.ceil(points[0][0]):math.ceil(points[3][0])]
+            table_image_path = f'{image_path}/table-{idx}.jpg'
+            cv2.imwrite(table_image_path, crop_img)
+            
+            print(f'unstructured width: {layout_width}, height: {layout_height}')
+            print(f'page_number: {page_number}')
+            print("==")
+            
+            width, height, _ = crop_img.shape
+            image_token = width*height/750
+            print(f'image: {table_image_path}, shape: {img.shape}, image_token_for_claude3: {image_token}')
+            
+            # Resize large images
+            if image_token > 1500:
+                resize_img = cv2.resize(img, (0, 0), fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+                print("   - resize_img.shape = {0}".format(resize_img.shape))
+                table_image_resize_path = table_image_path.replace(".jpg", "-resize.jpg")
+                cv2.imwrite(table_image_resize_path, resize_img)
+                os.remove(table_image_path)
+                table_image_path = table_image_resize_path
+            
+            img_base64 = image_to_base64(table_image_path)
+            table.metadata["image_base64"] = img_base64
+        
         if os.path.isdir(image_tmp_path): 
             shutil.rmtree(image_tmp_path)
         images = glob(os.path.join(image_path, "*"))
@@ -435,79 +450,6 @@ def prepare_data(file_path, image_path, llm_text, table_by_pymupdf=False, table_
     
     return texts, tables_preprocessed, images_preprocessed
 
-def html_to_image(html_content, output_path):
-
-    """
-    HTML 문자열을 이미지(.png)로 저장합니다.
-    
-    :param html_content: HTML 문자열 (테이블 포함)
-    :param output_path: 저장할 이미지 경로
-    :param wkhtmltoimage_path: wkhtmltoimage 실행 파일 경로 (Windows의 경우 필수)
-    """
-    options = {
-        'format': 'png',
-        'encoding': "UTF-8",
-        'disable-smart-width': '',
-        'zoom': 1.5,
-    }
-
-    wkhtmltoimage_path = "C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltoimage.exe"
-
-    config = None
-    if wkhtmltoimage_path:
-        config = imgkit.config(wkhtmltoimage=wkhtmltoimage_path)
-
-    try:
-        imgkit.from_string(html_content, output_path, options=options, config=config)
-        print(f"[✔] 이미지 저장 완료: {output_path}")
-    except Exception as e:
-        print(f"[✘] 이미지 변환 실패: {e}")
-
-    # """HTML 테이블을 이미지로 변환 (matplotlib 사용)"""
-    # import matplotlib.pyplot as plt
-    # from matplotlib.patches import Rectangle
-    # import pandas as pd
-    # from io import StringIO
-    # import matplotlib
-    # import platform
-
-    #     # 한글 폰트 설정
-    # if platform.system() == 'Windows':
-    #     matplotlib.rc('font', family='Malgun Gothic')
-    # elif platform.system() == 'Darwin':
-    #     matplotlib.rc('font', family='AppleGothic')
-    # else:
-    #     matplotlib.rc('font', family='NanumGothic')
-    # matplotlib.rcParams['axes.unicode_minus'] = False
-    
-    # try:
-    #     # HTML 테이블을 pandas DataFrame으로 변환
-    #     df = pd.read_html(StringIO(html_content))[0]
-        
-    #     # matplotlib로 테이블 이미지 생성
-    #     fig, ax = plt.subplots(figsize=(12, 8))
-    #     ax.axis('tight')
-    #     ax.axis('off')
-        
-    #     table = ax.table(cellText=df.values, colLabels=df.columns, 
-    #                     cellLoc='center', loc='center')
-    #     table.auto_set_font_size(False)
-    #     table.set_fontsize(9)
-    #     table.scale(1.2, 1.5)
-        
-    #     plt.savefig(output_path, bbox_inches='tight', dpi=150)
-    #     plt.close()
-        
-    # except Exception as e:
-    #     print(f"HTML to image conversion failed: {e}")
-    #     # 빈 이미지 생성
-    #     import numpy as np
-    #     import cv2
-    #     blank_img = np.ones((400, 600, 3), dtype=np.uint8) * 255
-    #     cv2.putText(blank_img, "Table Image Not Available", (50, 200), 
-    #                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
-    #     cv2.imwrite(output_path, blank_img)
-
 def set_index(dimension, index_name):
     """
     Get OpenSearch index info or create an OpenSearch index for document storage.
@@ -610,7 +552,6 @@ def set_index(dimension, index_name):
     pprint(index_info)
     
     return index_name, os_client, opensearch_domain_endpoint, http_auth
-
 
 def create_vector_store(index_name, opensearch_domain_endpoint, http_auth, llm_emb):
     """
@@ -736,4 +677,81 @@ def process_documents_for_indexing(texts, tables_preprocessed, images_preprocess
     print("Final total count docs: ", total_count_docs)
 
 
+def convert_to_pdf_libreoffice(input_path):
+    """
+    윈도우에서 LibreOffice를 사용해 문서를 PDF로 변환합니다.
+    """
+    output_dir = os.path.dirname(input_path)
 
+    try:
+        result = subprocess.run([
+            libreoffice_path,
+            "--headless",
+            "--convert-to", "pdf",
+            "--outdir", output_dir,
+            input_path
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+        # 🔽 인코딩 문제 방지
+        print(colored(result.stdout.decode("mbcs", errors="replace"), "cyan"))
+        print(colored(result.stderr.decode("mbcs", errors="replace"), "red"))
+
+    except subprocess.CalledProcessError as e:
+        print(colored("LibreOffice 변환 실패", "red"))
+        print(colored(e.stderr.decode("mbcs", errors="replace"), "red"))
+        raise
+
+    # 변환된 PDF 경로 반환
+    pdf_path = os.path.splitext(input_path)[0] + ".pdf"
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"PDF 변환 실패: {pdf_path} 파일이 존재하지 않습니다.")
+    
+    return pdf_path
+
+def convert_hwp_to_pdf(input_path):
+    hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
+    hwp.XHwpWindows.Item(0).Visible = False
+
+    try:
+        hwp.Open(input_path)
+        pdf_path = os.path.splitext(input_path)[0] + ".pdf"
+        hwp.SaveAs(pdf_path, "PDF")
+        hwp.Quit()
+    except Exception as e:
+        print("HWP 변환 오류:", e)
+        hwp.Quit()
+        raise
+
+    return pdf_path
+
+def download_from_s3(file_path):
+    """Download file from S3 to local directory."""
+    s3_client = boto3.client('s3', region_name=aws_region)
+    s3_bucket = config['S3']['BUCKET']
+    
+    # Check if file exists in S3
+    try:
+        s3_client.head_object(Bucket=s3_bucket, Key=file_path)
+        print(f"File found in S3: s3://{s3_bucket}/{file_path}")
+    except s3_client.exceptions.NoSuchKey:
+        raise FileNotFoundError(f"File not found in S3: s3://{s3_bucket}/{file_path}")
+    except Exception as e:
+        raise Exception(f"Error checking S3 file: {e}")
+    
+    # Create local directory if not exists
+    local_dir = "./doc"
+    if not os.path.exists(local_dir):
+        os.makedirs(local_dir)
+    
+    # Extract filename from S3 key
+    filename = os.path.basename(file_path)
+    local_file_path = os.path.join(local_dir, filename)
+    
+    try:
+        print(f"Downloading {file_path} from bucket {s3_bucket}...")
+        s3_client.download_file(s3_bucket, file_path, local_file_path)
+        print(f"File downloaded to: {local_file_path}")
+        return local_file_path
+    except Exception as e:
+        print(f"Error downloading file from S3: {e}")
+        raise

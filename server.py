@@ -3,7 +3,7 @@ from config.create_app import create_app
 from flask_restful import Api
 from flask_cors import CORS
 from src.uploadToOpenSearch import UploadToOpenSearch
-from src.uploadToOpenSearchDocx import UploadToOpenSearchDocx
+from src.uploadToOpenSearchS3 import UploadToOpenSearchS3
 
 env = socket.gethostbyname(socket.gethostname())
 if 'ai.chatbot.com' in env :
@@ -15,7 +15,7 @@ else:
 
 api = Api(app)
 api.add_resource(UploadToOpenSearch, '/api/opensearch/upload')
-api.add_resource(UploadToOpenSearchDocx, '/api/opensearch/uploadDocx')
+api.add_resource(UploadToOpenSearchS3, '/api/opensearch/uploadS3')
 
 if __name__ == "__main__":
     CORS(app)
