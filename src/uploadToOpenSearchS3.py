@@ -678,9 +678,13 @@ def process_documents_for_indexing(texts, tables_preprocessed, images_preprocess
 
 
 def convert_to_pdf_libreoffice(input_path):
-    """
-    윈도우에서 LibreOffice를 사용해 문서를 PDF로 변환합니다.
-    """
+    """LibreOffice로 DOCX를 PDF로 변환"""
+
+    if not os.path.exists(input_path):
+        print(f"파일이 존재하지 않습니다: {input_path}")
+        return input_path
+    
+    input_path = os.path.abspath(input_path)
     output_dir = os.path.dirname(input_path)
 
     try:
@@ -690,17 +694,16 @@ def convert_to_pdf_libreoffice(input_path):
             "--convert-to", "pdf",
             "--outdir", output_dir,
             input_path
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-
-        # 🔽 인코딩 문제 방지
-        print(colored(result.stdout.decode("mbcs", errors="replace"), "cyan"))
-        print(colored(result.stderr.decode("mbcs", errors="replace"), "red"))
-
-    except subprocess.CalledProcessError as e:
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE,check=True)
+        
+        print(f"stdout: {result.stdout.decode('utf-8', errors='replace')}")
+        print(f"stderr: {result.stderr.decode('utf-8', errors='replace')}")
+        
+    except Exception as e:
         print(colored("LibreOffice 변환 실패", "red"))
         print(colored(e.stderr.decode("mbcs", errors="replace"), "red"))
         raise
-
+    
     # 변환된 PDF 경로 반환
     pdf_path = os.path.splitext(input_path)[0] + ".pdf"
     if not os.path.exists(pdf_path):
@@ -740,8 +743,9 @@ def download_from_s3(file_path):
     
     # Create local directory if not exists
     local_dir = "./doc"
-    if not os.path.exists(local_dir):
-        os.makedirs(local_dir)
+    if os.path.isdir(local_dir): 
+        shutil.rmtree(local_dir)
+    os.mkdir(local_dir)
     
     # Extract filename from S3 key
     filename = os.path.basename(file_path)
